@@ -1,27 +1,27 @@
 import pytest
-from ..inference.dev_adapters import (
-    DevSyntheticSpeechDetector,
-    DevSpeakerVerifier,
-    DevAcousticAnalyzer,
+from ..inference.ml_adapters import (
+    RawNet2SyntheticDetector,
+    ECAPATDNNSpeakerVerifier,
+    ImprovedAcousticAnalyzer,
 )
 from ..websocket.handler import VoiceAnalysisManager
 
 @pytest.fixture
-def dev_synthetic_detector():
-    return DevSyntheticSpeechDetector()
+def synthetic_detector():
+    return RawNet2SyntheticDetector(model_path="/nonexistent/path.onnx")
 
 @pytest.fixture
-def dev_speaker_verifier():
-    return DevSpeakerVerifier()
+def speaker_verifier():
+    return ECAPATDNNSpeakerVerifier(model_path="/nonexistent/path.onnx")
 
 @pytest.fixture
-def dev_acoustic_analyzer():
-    return DevAcousticAnalyzer()
+def acoustic_analyzer():
+    return ImprovedAcousticAnalyzer()
 
 @pytest.fixture
-def manager(dev_synthetic_detector, dev_speaker_verifier, dev_acoustic_analyzer):
+def manager(synthetic_detector, speaker_verifier, acoustic_analyzer):
     return VoiceAnalysisManager(
-        synthetic_detector=dev_synthetic_detector,
-        speaker_verifier=dev_speaker_verifier,
-        acoustic_analyzer=dev_acoustic_analyzer,
+        synthetic_detector=synthetic_detector,
+        speaker_verifier=speaker_verifier,
+        acoustic_analyzer=acoustic_analyzer,
     )

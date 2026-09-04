@@ -1,0 +1,16 @@
+{
+  "model_name": "RawNet2",
+  "model_version": "1.0.0",
+  "task": "Synthetic/Deepfake Speech Detection",
+  "architecture": "1D CNN on raw waveform",
+  "input_format": "Raw PCM float32",
+  "sample_rate": 16000,
+  "minimum_audio_duration_s": 1.0,
+  "recommended_window_s": 2.0,
+  "output": "Binary classification (synthetic vs. genuine)",
+  "threshold_synthetic": 0.5,
+  "expected_latency_ms": "80-120",
+  "model_size_mb": 40,
+  "preprocessing_required": false,
+  "reference": "https://github.com/Jungjee/RawNet2"
+}

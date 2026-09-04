@@ -3,10 +3,10 @@ from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
 from .websocket.handler import VoiceAnalysisManager
-from .inference.dev_adapters import (
-    DevSyntheticSpeechDetector,
-    DevSpeakerVerifier,
-    DevAcousticAnalyzer,
+from .inference.ml_adapters import (
+    RawNet2SyntheticDetector,
+    ECAPATDNNSpeakerVerifier,
+    ImprovedAcousticAnalyzer,
 )
 
 structlog.configure(
@@ -30,9 +30,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-synthetic_detector = DevSyntheticSpeechDetector()
-speaker_verifier = DevSpeakerVerifier()
-acoustic_analyzer = DevAcousticAnalyzer()
+synthetic_detector = RawNet2SyntheticDetector()
+speaker_verifier = ECAPATDNNSpeakerVerifier()
+acoustic_analyzer = ImprovedAcousticAnalyzer()
 
 manager = VoiceAnalysisManager(
     synthetic_detector=synthetic_detector,
@@ -49,7 +49,10 @@ async def health():
             "speaker_verification": speaker_verifier.__class__.__name__,
             "acoustic_analysis": acoustic_analyzer.__class__.__name__,
         },
-        "ml_available": False,
+        "ml_available": {
+            "synthetic_detector": synthetic_detector.model_available,
+            "speaker_verifier": speaker_verifier.model_available,
+        },
     }
 
 @app.websocket("/ws/v1/voice-analysis/{session_id}")

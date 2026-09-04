@@ -7,3 +7,6 @@ structlog==25.4.0
 pytest==8.4.1
 pytest-asyncio==1.0.0
 httpx==0.28.1
+onnxruntime==1.18.0
+librosa==0.10.2
+scipy==1.14.1

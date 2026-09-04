@@ -1,0 +1,17 @@
+{
+  "model_name": "ECAPA-TDNN",
+  "model_version": "1.0.0",
+  "task": "Speaker Verification / Speaker Embeddings",
+  "architecture": "Time Delay Neural Network with channel/context attention",
+  "input_format": "MFCC (12-dim, 512ms window, 160ms hop)",
+  "sample_rate": 16000,
+  "minimum_audio_duration_s": 1.5,
+  "embedding_dimension": 192,
+  "output": "Speaker embedding vector (cosine similarity scoring)",
+  "threshold_same_speaker": 0.6,
+  "expected_latency_ms": "40-80",
+  "model_size_mb": 15,
+  "preprocessing_required": true,
+  "preprocessing_type": "MFCC",
+  "reference": "https://github.com/TaoRuijie/ECAPA-TDNN"
+}
