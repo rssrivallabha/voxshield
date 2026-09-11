@@ -40,6 +40,9 @@ class InferenceUpdate(BaseModel):
     speaker_verification: Optional[dict] = None
     synthetic_speech: Optional[dict] = None
     acoustic_analysis: Optional[dict] = None
+    raw_synthetic_probability: Optional[float] = None
+    accumulated_synthetic_evidence: Optional[float] = None
+    speaker_verification_evidence: Optional[float] = None
 
 class RiskUpdate(BaseModel):
     type: Literal["risk.update"] = "risk.update"
@@ -51,6 +54,7 @@ class RiskUpdate(BaseModel):
     evidence: list[dict]
     policy: Optional[dict] = None
     recommended_action: Optional[dict] = None
+    final_risk_state: Optional[str] = None
 
 class ErrorEvent(BaseModel):
     type: Literal["error"] = "error"

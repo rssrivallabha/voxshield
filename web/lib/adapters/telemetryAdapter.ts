@@ -159,7 +159,7 @@ export function adaptLiveAudioMetrics(
 
   return {
     mode: 'LIVE_INPUT',
-    modeBadgeLabel: 'LIVE INPUT • MICROPHONE',
+    modeBadgeLabel: 'LIVE INPUT • LOCAL ACOUSTIC ONLY',
     isMlAvailable: false,
     timeLabel: isMicActive ? `LIVE (${elapsedSec}s)` : 'STANDBY',
     phaseLabel,
@@ -283,7 +283,7 @@ export function adaptBackendTelemetry(state: BackendTelemetryState): UnifiedTele
       role: 'Backend Inference Stream',
       department: 'VoxShield Analysis Service',
       callerId: state.sessionId || 'BACKEND_SESSION_PENDING',
-      channel: 'WebSocket /ws/v1/voice-analysis',
+      channel: 'WebSocket /api/v1/ws/voice-analysis',
     },
     audioMetrics: {
       qualityStatus: (audio?.status || acoustic?.quality_status || 'INSUFFICIENT') as UnifiedTelemetryFrame['audioMetrics']['qualityStatus'],
@@ -296,11 +296,11 @@ export function adaptBackendTelemetry(state: BackendTelemetryState): UnifiedTele
       channels: 1,
     },
     mlMetrics: {
-      speakerMatchPct: speaker?.similarity_score !== null && speaker?.similarity_score !== undefined ? Math.round(speaker.similarity_score * 100) : null,
-      syntheticProbPct: synthetic?.status === 'AVAILABLE' ? Math.round(synthetic.probability * 100) : null,
-      speakerMatchText: speaker?.status === 'AVAILABLE' && speaker.similarity_score !== null ? `${Math.round(speaker.similarity_score * 100)}%` : speaker?.status === 'NO_ENROLLED_IDENTITY' ? 'NO ENROLLED IDENTITY' : 'MODEL UNAVAILABLE',
-      syntheticProbText: synthetic?.status === 'AVAILABLE' ? `${Math.round(synthetic.probability * 100)}%` : synthetic?.status === 'INSUFFICIENT_AUDIO' ? 'INSUFFICIENT AUDIO' : 'MODEL UNAVAILABLE',
-      deepfakeStatusText: synthetic?.status === 'AVAILABLE' ? `${Math.round(synthetic.probability * 100)}% Likelihood` : 'MODEL UNAVAILABLE',
+       speakerMatchPct: speaker?.similarity_score !== null && speaker?.similarity_score !== undefined ? Math.round(speaker.similarity_score * 100) : null,
+       syntheticProbPct: synthetic?.status === 'AVAILABLE' ? Math.round(synthetic.probability * 100) : null,
+       speakerMatchText: speaker?.status === 'AVAILABLE' && speaker.similarity_score !== null ? `${Math.round(speaker.similarity_score * 100)}%` : speaker?.status === 'NO_ENROLLED_IDENTITY' ? 'NO ENROLLED IDENTITY' : 'MODEL UNAVAILABLE',
+       syntheticProbText: synthetic?.status === 'AVAILABLE' ? `${Math.round(synthetic.probability * 100)}%` : synthetic?.status === 'INSUFFICIENT_AUDIO' ? 'INSUFFICIENT AUDIO' : (synthetic?.status ? `MODEL_UNAVAILABLE (${synthetic.status})` : 'MODEL UNAVAILABLE'),
+       deepfakeStatusText: synthetic?.status === 'AVAILABLE' ? `${Math.round(synthetic.probability * 100)}% Likelihood` : (synthetic?.status ? `MODEL_UNAVAILABLE (${synthetic.status})` : 'MODEL UNAVAILABLE'),
     },
     evidenceBreakdown: {
       syntheticVoicePoints: latestRisk?.evidence.find((e) => e.signal.toLowerCase().includes('synthetic'))?.points ?? null,

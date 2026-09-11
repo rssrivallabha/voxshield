@@ -21,12 +21,15 @@ export interface BackendRiskUpdate {
 export interface BackendErrorEvent { type: 'error'; session_id: string; code: string; message: string }
 type ServerEvent = BackendTelemetryUpdate | BackendInferenceUpdate | BackendRiskUpdate | BackendErrorEvent | { type: 'session.started'; session_id: string } | { type: 'session.stopped'; session_id: string };
 export interface BackendConnectionState { status: 'IDLE' | 'CONNECTING' | 'CONNECTED' | 'ERROR' | 'DISCONNECTED'; sessionId: string | null; error: string | null }
+export interface BackendRiskHistoryPoint { timestamp_ms: number; fused_risk_score: number | null; risk_state: string }
 
 export function useBackendInference(identityId?: string) {
   const [connectionState, setConnectionState] = useState<BackendConnectionState>({ status: 'IDLE', sessionId: null, error: null });
   const [lastTelemetry, setLastTelemetry] = useState<BackendTelemetryUpdate | null>(null);
   const [lastInference, setLastInference] = useState<BackendInferenceUpdate | null>(null);
   const [lastRisk, setLastRisk] = useState<BackendRiskUpdate | null>(null);
+  const [riskHistory, setRiskHistory] = useState<BackendRiskHistoryPoint[]>([]);
+  const activeSessionIdRef = useRef<string | null>(null);
   const [audioData, setAudioData] = useState<Uint8Array | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -55,8 +58,9 @@ export function useBackendInference(identityId?: string) {
     const ws = wsRef.current;
     if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'session.stop', session_id: sessionIdRef.current }));
     ws?.close(); wsRef.current = null;
+    activeSessionIdRef.current = null;
     setConnectionState({ status: 'IDLE', sessionId: null, error: null });
-    setLastTelemetry(null); setLastInference(null); setLastRisk(null);
+    setLastTelemetry(null); setLastInference(null); setLastRisk(null); setRiskHistory([]);
   }, [stopAudioCapture]);
 
   const startAudioCapture = useCallback(async () => {
@@ -88,15 +92,51 @@ export function useBackendInference(identityId?: string) {
   const startStreaming = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
     setConnectionState({ status: 'CONNECTING', sessionId: null, error: null });
-    sessionIdRef.current = `sess_${Math.random().toString(36).slice(2, 14)}`;
-    const endpoint = `${envConfig.wsUrl.replace(/\/$/, '')}/voice-analysis/${sessionIdRef.current}`;
+    const sessionId = `sess_${Math.random().toString(36).slice(2, 14)}`;
+    sessionIdRef.current = sessionId;
+    activeSessionIdRef.current = sessionId;
+    setLastTelemetry(null);
+    setLastInference(null);
+    setLastRisk(null);
+    const endpoint = `${envConfig.wsUrl.replace(/\/$/, '')}/voice-analysis/${sessionId}`;
     const ws = new WebSocket(endpoint); wsRef.current = ws;
-    ws.onopen = () => { setConnectionState({ status: 'CONNECTED', sessionId: sessionIdRef.current, error: null }); ws.send(JSON.stringify({ type: 'session.start', session_id: sessionIdRef.current, sample_rate: 16000, channels: 1, identity_id: identityId })); void startAudioCapture(); };
-    ws.onmessage = (event) => { try { const message = JSON.parse(event.data) as ServerEvent; if (message.type === 'telemetry.update') setLastTelemetry(message); else if (message.type === 'inference.update') setLastInference(message); else if (message.type === 'risk.update') setLastRisk(message); else if (message.type === 'error') setConnectionState((previous) => ({ ...previous, status: 'ERROR', error: `${message.code}: ${message.message}` })); } catch { setConnectionState((previous) => ({ ...previous, status: 'ERROR', error: 'Malformed backend event' })); } };
+    ws.onopen = () => { setConnectionState({ status: 'CONNECTED', sessionId, error: null }); ws.send(JSON.stringify({ type: 'session.start', session_id: sessionId, sample_rate: 16000, channels: 1, identity_id: identityId })); void startAudioCapture(); };
+    ws.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data) as ServerEvent;
+        if ('session_id' in message && message.session_id !== activeSessionIdRef.current) return;
+        if (message.type === 'telemetry.update') setLastTelemetry(message);
+        else if (message.type === 'inference.update') {
+          setLastInference((previous) => {
+            if (previous?.session_id === message.session_id && previous.timestamp_ms > message.timestamp_ms) return previous;
+            return message;
+          });
+        } else if (message.type === 'risk.update') {
+          setLastRisk((previous) => {
+            if (previous?.session_id === message.session_id && previous.timestamp_ms > message.timestamp_ms) return previous;
+            return message;
+          });
+          setRiskHistory((previous) => [...previous, {
+            timestamp_ms: message.timestamp_ms,
+            fused_risk_score: message.fused_risk_score,
+            risk_state: message.risk_state,
+          }].slice(-120));
+        } else if (message.type === 'error') {
+          setConnectionState((previous) => ({ ...previous, status: 'ERROR', error: `${message.code}: ${message.message}` }));
+        }
+      } catch {
+        setConnectionState((previous) => ({ ...previous, status: 'ERROR', error: 'Malformed backend event' }));
+      }
+    };
     ws.onerror = () => setConnectionState((previous) => ({ ...previous, status: 'ERROR', error: 'WebSocket connection error' }));
-    ws.onclose = () => { stopAudioCapture(); setConnectionState((previous) => previous.status === 'ERROR' ? previous : { ...previous, status: 'DISCONNECTED' }); };
+    ws.onclose = () => {
+      if (wsRef.current !== ws) return;
+      activeSessionIdRef.current = null;
+      stopAudioCapture();
+      setConnectionState((previous) => previous.status === 'ERROR' ? previous : { ...previous, status: 'DISCONNECTED' });
+    };
   }, [identityId, startAudioCapture, stopAudioCapture]);
 
   useEffect(() => () => { disconnect(); }, [disconnect]);
-  return { connectionState, lastTelemetry, lastInference, lastRisk, audioData, startStreaming, stopStreaming: disconnect, sessionId: sessionIdRef.current };
+  return { connectionState, lastTelemetry, lastInference, lastRisk, riskHistory, audioData, startStreaming, stopStreaming: disconnect, sessionId: sessionIdRef.current };
 }

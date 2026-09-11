@@ -1,3 +1,4 @@
+import math
 import base64
 import struct
 from typing import Optional
@@ -76,3 +77,79 @@ def preprocess_chunk(
         clipping_detected=clipping,
         estimated_noise_floor_margin_db=round(estimated_noise_margin, 1),
     )
+
+def prepare_for_rawnet2(
+    samples: list[float],
+    sample_rate: int,
+    channels: int,
+    target_sample_rate: int = TARGET_SAMPLE_RATE,
+    target_samples: int = 64000,
+) -> list[float]:
+    """
+    Prepare arbitrary PCM audio for the RawNet2 model.
+
+    Input:
+        samples: interleaved float32 PCM samples in [-1, 1]
+        sample_rate: source sample rate
+        channels: source channel count
+
+    Output:
+        mono float32 waveform at 16 kHz,
+        exactly 64000 samples.
+    """
+    if not samples:
+        raise ValueError("Audio contains no samples")
+
+    if sample_rate <= 0:
+        raise ValueError("Invalid sample rate")
+
+    if channels <= 0:
+        raise ValueError("Invalid channel count")
+
+    # Convert interleaved multi-channel audio to mono.
+    if channels > 1:
+        frame_count = len(samples) // channels
+        samples = [
+            sum(samples[i * channels:(i + 1) * channels]) / channels
+            for i in range(frame_count)
+        ]
+
+    # Resample to the RawNet2 target rate.
+    if sample_rate != target_sample_rate:
+        source_length = len(samples)
+        target_length = round(
+            source_length * target_sample_rate / sample_rate
+        )
+
+        if target_length <= 0:
+            raise ValueError("Audio is too short after resampling")
+
+        if source_length == 1:
+            samples = [samples[0]] * target_length
+        else:
+            resampled = []
+
+            scale = (source_length - 1) / (target_length - 1) if target_length > 1 else 0
+
+            for i in range(target_length):
+                position = i * scale
+                left = int(position)
+                right = min(left + 1, source_length - 1)
+                fraction = position - left
+
+                value = (
+                    samples[left] * (1.0 - fraction)
+                    + samples[right] * fraction
+                )
+
+                resampled.append(value)
+
+            samples = resampled
+
+    # RawNet2 expects exactly 64000 samples.
+    if len(samples) >= target_samples:
+        samples = samples[:target_samples]
+    else:
+        samples = samples + [0.0] * (target_samples - len(samples))
+
+    return samples

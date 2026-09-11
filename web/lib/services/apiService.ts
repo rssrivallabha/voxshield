@@ -3,6 +3,25 @@ import { CallSession, Incident, VoiceIdentity, SecurityPolicy, AuditLogEntry, Da
 import { apiClient } from '../api/client';
 
 export class ApiVoxShieldService implements IVoxShieldService {
+    getVoiceIdentities(): Promise<VoiceIdentity[]> {
+        return apiClient.get<VoiceIdentity[]>('/identities');
+    }
+
+    createVoiceIdentity(identity: { name: string; description: string; enrollment_audio_duration_s: number }): Promise<VoiceIdentity> {
+        return apiClient.post<VoiceIdentity>('/identities', identity);
+    }
+
+    enrollVoiceIdentity(identityId: string, audioData: { audio_samples: number[]; sample_rate: number }): Promise<unknown> {
+        return apiClient.post<unknown>(`/identities/${identityId}/enroll`, audioData);
+    }
+
+    getIdentityStatus(identityId: string): Promise<unknown> {
+        return apiClient.get<unknown>(`/identities/${identityId}/status`);
+    }
+
+    deleteVoiceIdentity(identityId: string): Promise<unknown> {
+        return apiClient.delete<unknown>(`/identities/${identityId}`);
+    }
   getDashboardMetrics(): Promise<DashboardMetrics> {
     return apiClient.get<DashboardMetrics>('/dashboard/summary');
   }
@@ -27,10 +46,6 @@ export class ApiVoxShieldService implements IVoxShieldService {
 
   updateIncidentStatus(id: string, status: Incident['status']): Promise<Incident> {
     return apiClient.patch<Incident>(`/incidents/${id}`, { status });
-  }
-
-  getVoiceIdentities(): Promise<VoiceIdentity[]> {
-    return apiClient.get<VoiceIdentity[]>('/identities');
   }
 
   getSecurityPolicies(): Promise<SecurityPolicy[]> {

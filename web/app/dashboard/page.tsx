@@ -60,6 +60,7 @@ export default function SOCDashboard() {
     lastTelemetry,
     lastInference,
     lastRisk,
+    riskHistory,
     startStreaming,
     stopStreaming,
     sessionId,
@@ -87,16 +88,16 @@ export default function SOCDashboard() {
     }
   };
 
-  // Adapt active telemetry according to selected mode
-  const activeTelemetry: UnifiedTelemetryFrame = React.useMemo(() => {
-    if (activeMode === 'SIMULATION') {
-      return adaptSimulationFrame(currentSimFrame);
-    }
-    if (activeMode === 'LIVE_INPUT') {
-      return adaptLiveAudioMetrics(liveMetrics, micState, sessionStartTime);
-    }
-    return adaptBackendTelemetry(backendTelemetryState);
-  }, [activeMode, currentSimFrame, liveMetrics, micState, sessionStartTime, backendTelemetryState]);
+   // Adapt active telemetry according to selected mode
+   const activeTelemetry: UnifiedTelemetryFrame = React.useMemo(() => {
+     if (activeMode === 'SIMULATION') {
+       return adaptSimulationFrame(currentSimFrame);
+     }
+     if (activeMode === 'LIVE_INPUT') {
+       return adaptLiveAudioMetrics(liveMetrics, micState, sessionStartTime);
+     }
+     return adaptBackendTelemetry(backendTelemetryState);
+   }, [activeMode, currentSimFrame, liveMetrics, micState, sessionStartTime, backendTelemetryState]);
 
   return (
     <PermissionGuard>
@@ -460,8 +461,12 @@ export default function SOCDashboard() {
             <RiskHistoryChart history={
               activeMode === 'SIMULATION' 
                 ? simHistory 
-                : activeMode === 'BACKEND' && lastRisk?.fused_risk_score
-                  ? [{ timeSeconds: 0, fusedRiskScore: lastRisk.fused_risk_score, riskState: activeTelemetry.riskState }]
+                : activeMode === 'BACKEND' && riskHistory.length > 0
+                  ? riskHistory.map((point, index) => ({
+                      timeSeconds: index,
+                      fusedRiskScore: point.fused_risk_score ?? 0,
+                      riskState: point.risk_state as typeof activeTelemetry.riskState,
+                    }))
                   : [{ timeSeconds: 0, fusedRiskScore: 0, riskState: 'UNVERIFIED' }]
             } />
 

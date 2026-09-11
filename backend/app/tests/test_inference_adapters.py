@@ -15,7 +15,7 @@ class TestRawNet2SyntheticDetector:
         assert result.status == "MODEL_UNAVAILABLE"
         assert result.probability == 0.0
         assert result.confidence == 0.0
-        assert result.model_id == "rawnet2_onnx"
+        assert result.model_id == "rawnet2_pytorch"
 
     def test_insufficient_audio_returns_status(self):
         det = RawNet2SyntheticDetector(model_path="/nonexistent/path.onnx")

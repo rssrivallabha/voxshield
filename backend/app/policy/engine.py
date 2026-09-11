@@ -1,5 +1,6 @@
 import time
-from typing import Optional
+from typing import Optional, List
+from .persistence import get_policies_from_db
 
 DEFAULT_POLICIES = [
     {
@@ -30,6 +31,17 @@ DEFAULT_POLICIES = [
 
 RISK_SEVERITY_ORDER = ["TRUSTED", "MONITOR", "SUSPICIOUS", "HIGH_RISK", "CRITICAL", "UNVERIFIED", "INSUFFICIENT_EVIDENCE"]
 
+def _load_policies() -> List[dict]:
+    try:
+        return get_policies_from_db()
+    except Exception:
+        # fallback to defaults if DB not ready
+        return [
+            {"id": "pol_01", "name": "Critical Threat Termination", "description": "Terminate session on CRITICAL risk state", "risk_threshold": "CRITICAL", "action": "TERMINATE_SESSION", "enabled": True},
+            {"id": "pol_02", "name": "High Risk Challenge", "description": "Require step-up verification on HIGH_RISK", "risk_threshold": "HIGH_RISK", "action": "REQUIRE_STEP_UP_VERIFICATION", "enabled": True},
+            {"id": "pol_03", "name": "Suspicious Route to Analyst", "description": "Route to SOC analyst on SUSPICIOUS", "risk_threshold": "SUSPICIOUS", "action": "ROUTE_TO_ANALYST", "enabled": True},
+        ]
+
 def evaluate_policies(
     risk_state: str,
     fused_risk_score: Optional[float],
@@ -38,8 +50,8 @@ def evaluate_policies(
     triggered = None
     highest_severity = -1
     
-    for policy in DEFAULT_POLICIES:
-        if not policy["enabled"]:
+    for policy in _load_policies():
+        if not policy.get("enabled", True):
             continue
         if risk_state == policy["risk_threshold"]:
             severity_idx = RISK_SEVERITY_ORDER.index(risk_state) if risk_state in RISK_SEVERITY_ORDER else -1
