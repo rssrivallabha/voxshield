@@ -50,10 +50,10 @@ def train_job(job_id: str):
         parent_version = row["parent_model_version"]
         created_by = row["created_by"]
 
-    # fetch samples
+    # fetch samples with speaker_id
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT sample_id, admin_label, stored_path FROM dataset_samples WHERE dataset_version=? AND preprocessing_status='COMPLETED'",
+            "SELECT sample_id, admin_label, stored_path, speaker_id FROM dataset_samples WHERE dataset_version=? AND preprocessing_status='COMPLETED'",
             (dataset_version,)
         ).fetchall()
 
@@ -61,23 +61,57 @@ def train_job(job_id: str):
         _fail_job(job_id, "Insufficient samples")
         return
 
-    # prepare tensors
+    # prepare tensors and collect speaker ids
     X = []
     y = []
+    speaker_ids = []
     for r in rows:
         label = 0 if r["admin_label"] == "AI" else 1  # AI=spoof class 0, HUMAN=bonafide class1
         waveform = _load_audio(r["stored_path"])
         X.append(waveform)
         y.append(label)
+        speaker_ids.append(r["speaker_id"])
 
     X = torch.stack(X)  # (N, 64000)
     y = torch.tensor(y, dtype=torch.long)
+
+    # determine validation methodology
+    # speaker-aware split if all samples have a speaker_id
+    all_have_speaker = all(sid is not None and sid != '' for sid in speaker_ids)
+    validation_method = "speaker_separated" if all_have_speaker else "random"
 
     # deterministic split
     generator = torch.Generator().manual_seed(config.get("seed", 42))
     n_val = max(1, int(0.2 * len(X)))
     n_train = len(X) - n_val
-    train_ds, val_ds = random_split(TensorDataset(X, y), [n_train, n_val], generator=generator)
+
+    if all_have_speaker:
+        # group indices by speaker
+        from collections import defaultdict
+        speaker_to_indices = defaultdict(list)
+        for idx, sid in enumerate(speaker_ids):
+            speaker_to_indices[sid].append(idx)
+        speakers = list(speaker_to_indices.keys())
+        # shuffle speakers deterministically
+        perm = torch.randperm(len(speakers), generator=generator).tolist()
+        val_speaker_count = max(1, int(0.2 * len(speakers)))
+        val_speakers = set([speakers[i] for i in perm[:val_speaker_count]])
+        train_indices = []
+        val_indices = []
+        for sid, indices in speaker_to_indices.items():
+            if sid in val_speakers:
+                val_indices.extend(indices)
+            else:
+                train_indices.extend(indices)
+        # ensure at least one sample each
+        if len(val_indices) == 0:
+            val_indices.append(train_indices.pop())
+        if len(train_indices) == 0:
+            train_indices.append(val_indices.pop())
+        train_ds = torch.utils.data.Subset(TensorDataset(X, y), train_indices)
+        val_ds = torch.utils.data.Subset(TensorDataset(X, y), val_indices)
+    else:
+        train_ds, val_ds = random_split(TensorDataset(X, y), [n_train, n_val], generator=generator)
 
     train_loader = DataLoader(train_ds, batch_size=config.get("batch_size", 16), shuffle=True, generator=generator)
     val_loader = DataLoader(val_ds, batch_size=config.get("batch_size", 16), shuffle=False)
@@ -189,8 +223,8 @@ def train_job(job_id: str):
     # update training_jobs
     with get_conn() as conn:
         conn.execute(
-            "UPDATE training_jobs SET status='VALIDATED', completed_at=?, metrics_json=?, artifact_path=? WHERE job_id=?",
-            (time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()), json.dumps(metrics), artifact_path, job_id)
+            "UPDATE training_jobs SET status='VALIDATED', completed_at=?, metrics_json=?, artifact_path=?, validation_method=? WHERE job_id=?",
+            (time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()), json.dumps(metrics), artifact_path, validation_method, job_id)
         )
         conn.commit()
 

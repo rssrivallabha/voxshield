@@ -1,5 +1,7 @@
 import asyncio
 import json
+import math
+import os
 import time
 from typing import Optional
 
@@ -43,6 +45,22 @@ SESSION_IDLE_TIMEOUT_S = 60.0
 RAWNET2_SAMPLE_RATE = 16000
 RAWNET2_WINDOW_SAMPLES = 64000
 RAWNET2_STRIDE_SAMPLES = 16000
+
+VOX_DIAGNOSTICS = os.getenv("VOX_DIAGNOSTICS") == "1"
+
+
+def _rms_peak(samples: list[float]) -> tuple[float, float]:
+    if not samples:
+        return 0.0, 0.0
+    sq_sum = 0.0
+    peak = 0.0
+    for v in samples:
+        sq_sum += v * v
+        av = abs(v)
+        if av > peak:
+            peak = av
+    rms = math.sqrt(sq_sum / len(samples))
+    return rms, peak
 
 
 def to_mono_16k(samples: list[float], sample_rate: int, channels: int) -> list[float]:
@@ -90,6 +108,7 @@ class VoiceAnalysisSession:
         self.active = True
         self.window_count = 0
         self.inference_count = 0
+        self.dropped_windows = 0
         self.history: list[dict] = []
         self.synthetic_evidence_accumulator: float = 0.0
 
@@ -176,6 +195,9 @@ class VoiceAnalysisManager:
                 session.pending_window = list(session.audio_buffer)
         if session.pending_window is not None and (session.inference_task is None or session.inference_task.done()):
             session.inference_task = asyncio.create_task(self._inference_worker(session, ws))
+        elif session.pending_window is not None:
+            # inference still running, this window will be dropped/coalesced
+            session.dropped_windows += 1
 
     def _run_inference(self, session_id: str, identity_id: Optional[str], window: list[float]):
         started_at = time.perf_counter()
@@ -254,6 +276,33 @@ class VoiceAnalysisManager:
             speaker_evidence = None
             if speaker_result.status == "AVAILABLE" and speaker_result.similarity_score is not None:
                 speaker_evidence = 1.0 - speaker_result.similarity_score
+
+            # Diagnostics
+            if VOX_DIAGNOSTICS:
+                rms_val, peak_val = _rms_peak(window)
+                zero_frac = sum(1 for v in window if abs(v) < 1e-6) / len(window) if window else 0.0
+                bonafide_prob = synth_result.metadata.get("bonafide_prob") if synth_result.metadata else None
+                if bonafide_prob is None:
+                    bonafide_prob = 1.0 - (synth_result.probability if synth_result.status == "AVAILABLE" else 0.5)
+                speaker_status = speaker_result.status
+                speaker_sim = speaker_result.similarity_score
+                logger.info("vox_diagnostics", **{
+                    "session_id": session.session_id,
+                    "window_index": session.inference_count,
+                    "window_samples": len(window),
+                    "rms": rms_val,
+                    "peak": peak_val,
+                    "zero_fraction": zero_frac,
+                    "raw_spoof_probability": synth_result.probability if synth_result.status == "AVAILABLE" else None,
+                    "raw_bonafide_probability": bonafide_prob,
+                    "temporal_synthetic_evidence": accumulated_evidence,
+                    "speaker_verification_status": speaker_status,
+                    "speaker_similarity": speaker_sim,
+                    "final_risk_state": risk_result["risk_state"],
+                    "inference_latency_ms": total_inference_ms,
+                    "padded": zero_frac > 0.5,
+                    "dropped_windows": session.dropped_windows,
+                })
 
             if ws is None:
                 continue

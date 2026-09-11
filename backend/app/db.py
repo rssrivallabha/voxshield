@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS dataset_samples (
     included_in_training INTEGER NOT NULL DEFAULT 0,
     production_identity_id TEXT,
     stored_path TEXT NOT NULL,
+    speaker_id TEXT,
     FOREIGN KEY(uploader_id) REFERENCES users(id),
     FOREIGN KEY(production_identity_id) REFERENCES production_identities(identity_id)
 );
@@ -59,6 +60,7 @@ CREATE TABLE IF NOT EXISTS training_jobs (
     metrics_json TEXT,
     artifact_path TEXT,
     created_by TEXT NOT NULL,
+    validation_method TEXT,
     FOREIGN KEY(created_by) REFERENCES users(id)
 );
 
@@ -177,4 +179,6 @@ def _connect() -> Generator[sqlite3.Connection, None, None]:
         conn.close()
 
 def get_conn() -> sqlite3.Connection:
-    return sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn

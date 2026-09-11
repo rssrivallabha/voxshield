@@ -11,6 +11,9 @@ export interface BackendInferenceUpdate {
   speaker_verification: { similarity_score: number | null; confidence: number | null; status: string; identity_id: string; latency_ms: number };
   synthetic_speech: { probability: number; confidence: number; status: string; model_id: string; latency_ms: number };
   acoustic_analysis: { quality_status: string; quality_score: number; voice_activity: boolean; spectral_anomaly: number; clipping: boolean; latency_ms: number };
+  raw_synthetic_probability: number | null;
+  accumulated_synthetic_evidence: number | null;
+  speaker_verification_evidence: number | null;
 }
 export interface BackendRiskUpdate {
   type: 'risk.update'; session_id: string; timestamp_ms: number; risk_state: string; fused_risk_score: number | null; confidence: string;

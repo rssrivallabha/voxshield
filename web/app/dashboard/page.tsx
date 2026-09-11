@@ -333,7 +333,7 @@ export default function SOCDashboard() {
                 />
 
                 {/* Telemetry Metrics */}
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-3 sm:grid-cols-3">
                   <div className="p-3 rounded-lg border border-panel-border bg-panel-elevated space-y-1.5">
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-muted-foreground font-mono">Speaker Similarity</span>
@@ -365,7 +365,7 @@ export default function SOCDashboard() {
 
                   <div className="p-3 rounded-lg border border-panel-border bg-panel-elevated space-y-1.5">
                     <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground font-mono">Synthetic Voice Prob</span>
+                      <span className="text-muted-foreground font-mono">Raw Synthetic Probability</span>
                       <span
                         className={`font-mono font-bold ${
                           activeTelemetry.mlMetrics.syntheticProbPct === null
@@ -385,6 +385,37 @@ export default function SOCDashboard() {
                             activeTelemetry.mlMetrics.syntheticProbPct > 50 ? 'bg-risk-critical' : 'bg-confidence-high'
                           }`}
                           style={{ width: `${activeTelemetry.mlMetrics.syntheticProbPct}%` }}
+                        />
+                      ) : (
+                        <div className="h-full bg-amber-500/40 w-full animate-pulse" />
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-lg border border-panel-border bg-panel-elevated space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground font-mono">Temporal Synthetic Evidence</span>
+                      <span
+                        className={`font-mono font-bold ${
+                          activeTelemetry.mlMetrics.temporalSyntheticEvidencePct === null
+                            ? 'text-amber-500 text-[10px]'
+                            : activeTelemetry.mlMetrics.temporalSyntheticEvidencePct > 50
+                            ? 'text-risk-high'
+                            : 'text-confidence-high'
+                        }`}
+                      >
+                        {activeTelemetry.mlMetrics.temporalSyntheticEvidencePct !== null
+                          ? `${activeTelemetry.mlMetrics.temporalSyntheticEvidencePct}%`
+                          : 'UNAVAILABLE'}
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                      {activeTelemetry.mlMetrics.temporalSyntheticEvidencePct !== null ? (
+                        <div
+                          className={`h-full transition-standard ${
+                            activeTelemetry.mlMetrics.temporalSyntheticEvidencePct > 50 ? 'bg-risk-high' : 'bg-confidence-high'
+                          }`}
+                          style={{ width: `${activeTelemetry.mlMetrics.temporalSyntheticEvidencePct}%` }}
                         />
                       ) : (
                         <div className="h-full bg-amber-500/40 w-full animate-pulse" />

@@ -14,7 +14,7 @@ interface AuthGuardProps {
 export function AuthGuard({ children }: AuthGuardProps) {
   const { isAuthenticated, isLoading, login } = useAuth();
   const [email, setEmail] = React.useState('operator@voxshield.sec');
-  const [selectedRole, setSelectedRole] = React.useState<UserRole>('operator');
+  const [selectedRole, setSelectedRole] = React.useState<UserRole>('admin');
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   if (isLoading) {
