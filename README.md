@@ -147,6 +147,36 @@ Production integration with SIP/PBX systems, carrier infrastructure, WebRTC gate
 **Category:** Software  
 **Team:** Out Of Scope
 
+## Requirements
+
+- Python 3.11+
+- Node.js 18+
+- npm
+- Git
+- FastAPI
+- Uvicorn
+- PyTorch
+- ONNX Runtime
+- NumPy
+- SciPy
+- Librosa
+- SoundFile
+- Next.js
+- React
+- TypeScript
+- Tailwind CSS
+- SQLite
+
+### AI Models
+
+- RawNet2 — Synthetic Speech Detection
+- ECAPA-TDNN — Speaker Verification
+
+### Hardware
+
+- CPU-supported inference
+- 8 GB RAM minimum recommended
+- GPU is optional
 ---
 
 **VoxShield — Detect. Assess. Respond.**
