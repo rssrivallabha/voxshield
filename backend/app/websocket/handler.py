@@ -1,7 +1,5 @@
 import asyncio
 import json
-import math
-import os
 import time
 from typing import Optional
 
@@ -22,45 +20,16 @@ from ..schemas.protocol import (
     StartSessionMessage,
     TelemetryUpdate,
 )
-from ..incident.service import incident_service
-from ..audit.service import audit_service
-from ..history.risk_service import risk_history_service
-from ..history.inference_service import inference_history_service
-from ..db import get_conn
+from .telemetry_instrumentation import StageTiming, now_ms
+
 
 logger = structlog.get_logger()
-
-def _get_deployed_model_version() -> str:
-    try:
-        with get_conn() as conn:
-            row = conn.execute("SELECT version_id FROM model_versions WHERE deployed=1 ORDER BY deployed_at DESC LIMIT 1").fetchone()
-            if row:
-                return row["version_id"]
-    except Exception:
-        pass
-    return "rawnet2-baseline"
 
 MAX_WS_MESSAGE_SIZE = 1 * 1024 * 1024
 SESSION_IDLE_TIMEOUT_S = 60.0
 RAWNET2_SAMPLE_RATE = 16000
 RAWNET2_WINDOW_SAMPLES = 64000
 RAWNET2_STRIDE_SAMPLES = 16000
-
-VOX_DIAGNOSTICS = os.getenv("VOX_DIAGNOSTICS") == "1"
-
-
-def _rms_peak(samples: list[float]) -> tuple[float, float]:
-    if not samples:
-        return 0.0, 0.0
-    sq_sum = 0.0
-    peak = 0.0
-    for v in samples:
-        sq_sum += v * v
-        av = abs(v)
-        if av > peak:
-            peak = av
-    rms = math.sqrt(sq_sum / len(samples))
-    return rms, peak
 
 
 def to_mono_16k(samples: list[float], sample_rate: int, channels: int) -> list[float]:
@@ -108,9 +77,18 @@ class VoiceAnalysisSession:
         self.active = True
         self.window_count = 0
         self.inference_count = 0
-        self.dropped_windows = 0
         self.history: list[dict] = []
-        self.synthetic_evidence_accumulator: float = 0.0
+        self.last_stage_timing: Optional[StageTiming] = None
+        self.latest_pending_seq: Optional[int] = None
+        self.last_inference_seq: Optional[int] = None
+        self.active_inference_count = 0
+        self.synthetic_prob_history: list[float] = []
+        self.max_pending_depth = 0
+        self.coalesced_dropped_windows = 0
+        self.stale_windows_prevented = 0
+        self.pending_depth = 0
+        import os
+        self._diagnostics_enabled = os.getenv("VOX_DIAGNOSTICS", "0") == "1"
 
         if identity_id and identity_service:
             identity = identity_service.get_identity(identity_id)
@@ -171,10 +149,19 @@ class VoiceAnalysisManager:
         return [session.summary() for session in self._sessions.values() if session.active]
 
     def _queue_latest_window(
-        self, session: VoiceAnalysisSession, samples: list[float], ws: Optional[WebSocket] = None
+        self,
+        session: VoiceAnalysisSession,
+        samples: list[float],
+        chunk_seq: int,
+        ws: Optional[WebSocket] = None,
     ) -> None:
         if not samples:
             return
+        session.latest_pending_seq = chunk_seq
+        if session.last_stage_timing is None:
+            session.last_stage_timing = StageTiming(chunk_seq=chunk_seq, t_capture_ms=now_ms(), t_ws_send_ms=0.0, t_ws_recv_ms=0.0,
+                                                      t_preprocess_start_ms=0.0, t_preprocess_end_ms=0.0, t_window_ready_ms=0.0,
+                                                      t_queue_depth=0)
         session.total_audio_samples += len(samples)
         session.audio_buffer.extend(samples)
         if len(session.audio_buffer) > self.window_samples:
@@ -193,18 +180,25 @@ class VoiceAnalysisManager:
                 session.window_count += session.samples_since_window // self.stride_samples
                 session.samples_since_window %= self.stride_samples
                 session.pending_window = list(session.audio_buffer)
-        if session.pending_window is not None and (session.inference_task is None or session.inference_task.done()):
-            session.inference_task = asyncio.create_task(self._inference_worker(session, ws))
-        elif session.pending_window is not None:
-            # inference still running, this window will be dropped/coalesced
-            session.dropped_windows += 1
+                session.latest_pending_seq = chunk_seq
+        if session.pending_window is not None:
+            if session.inference_task is None or session.inference_task.done():
+                session.inference_task = asyncio.create_task(self._inference_worker(session, ws))
+            else:
+                session.pending_window = list(session.audio_buffer[-self.window_samples:]) if len(session.audio_buffer) >= self.window_samples else list(session.audio_buffer)
+                session.latest_pending_seq = chunk_seq
+                session.coalesced_dropped_windows += 1
+                session.stale_windows_prevented += 1
+            session.pending_depth = 1
+            session.max_pending_depth = max(session.max_pending_depth, session.pending_depth)
 
-    def _run_inference(self, session_id: str, identity_id: Optional[str], window: list[float]):
+
+    def _run_inference(self, session_id: str, identity_id: Optional[str], window: list[float], history_synthetic_probs: Optional[list[float]] = None):
         started_at = time.perf_counter()
         acoustic_result = self.acoustic_analyzer.analyze(window, RAWNET2_SAMPLE_RATE)
         synth_result = self.synthetic_detector.detect(window, RAWNET2_SAMPLE_RATE)
         speaker_result = self.speaker_verifier.verify(window, RAWNET2_SAMPLE_RATE, identity_id)
-        fused = fuse_evidence(synth_result, speaker_result, acoustic_result)
+        fused = fuse_evidence(synth_result, speaker_result, acoustic_result, history_synthetic_probs=history_synthetic_probs)
         risk_result = determine_risk_state(fused)
         policy_trigger = evaluate_policies(
             risk_result["risk_state"], risk_result["fused_risk_score"], session_id
@@ -227,14 +221,30 @@ class VoiceAnalysisManager:
                 await ws.send_text(payload)
 
     async def _inference_worker(self, session: VoiceAnalysisSession, ws: Optional[WebSocket] = None) -> None:
+        processed_seq = None
+        diagnostics_enabled = getattr(session, "_diagnostics_enabled", False)
         while session.active and session.pending_window is not None:
+
+            if processed_seq is not None and session.latest_pending_seq is not None and session.latest_pending_seq != processed_seq:
+                session.pending_window = None
+                break
             window = session.pending_window
             session.pending_window = None
+            processed_seq = session.latest_pending_seq
+            session.last_inference_seq = processed_seq
+            if session.last_stage_timing is not None:
+                session.last_stage_timing.t_window_ready_ms = now_ms()
+                session.last_stage_timing.t_queue_depth = len(session.audio_buffer)
+            if session.last_stage_timing is not None:
+                session.last_stage_timing.t_inference_start_ms = now_ms()
             try:
                 result = await asyncio.to_thread(
-                    self._run_inference, session.session_id, session.identity_id, window
+                    self._run_inference, session.session_id, session.identity_id, window, session.synthetic_prob_history
                 )
+                if session.last_stage_timing is not None:
+                    session.last_stage_timing.t_inference_end_ms = now_ms()
             except asyncio.CancelledError:
+                raise
                 raise
             except Exception as exc:
                 logger.error("inference.error", session_id=session.session_id, error=str(exc))
@@ -251,6 +261,11 @@ class VoiceAnalysisManager:
                 recommended,
                 total_inference_ms,
             ) = result
+            
+            session.synthetic_prob_history.append(synth_result.probability)
+            if len(session.synthetic_prob_history) > 10:
+                session.synthetic_prob_history.pop(0)
+
             session.inference_count += 1
             session.risk_state = risk_result["risk_state"]
             session.fused_risk_score = risk_result["fused_risk_score"]
@@ -262,50 +277,13 @@ class VoiceAnalysisManager:
                 "risk_state": risk_result["risk_state"],
                 "confidence": risk_result["confidence"],
             })
-
-            # Temporal synthetic evidence accumulation
-            decay = 0.9
-            gain = 0.2
-            raw_prob = synth_result.probability if synth_result.status == "AVAILABLE" else 0.5
-            session.synthetic_evidence_accumulator = max(0.0, min(1.0,
-                session.synthetic_evidence_accumulator * decay + (raw_prob - 0.5) * gain
-            ))
-            accumulated_evidence = session.synthetic_evidence_accumulator
-
-            # Speaker verification evidence (mismatch)
-            speaker_evidence = None
-            if speaker_result.status == "AVAILABLE" and speaker_result.similarity_score is not None:
-                speaker_evidence = 1.0 - speaker_result.similarity_score
-
-            # Diagnostics
-            if VOX_DIAGNOSTICS:
-                rms_val, peak_val = _rms_peak(window)
-                zero_frac = sum(1 for v in window if abs(v) < 1e-6) / len(window) if window else 0.0
-                bonafide_prob = synth_result.metadata.get("bonafide_prob") if synth_result.metadata else None
-                if bonafide_prob is None:
-                    bonafide_prob = 1.0 - (synth_result.probability if synth_result.status == "AVAILABLE" else 0.5)
-                speaker_status = speaker_result.status
-                speaker_sim = speaker_result.similarity_score
-                logger.info("vox_diagnostics", **{
-                    "session_id": session.session_id,
-                    "window_index": session.inference_count,
-                    "window_samples": len(window),
-                    "rms": rms_val,
-                    "peak": peak_val,
-                    "zero_fraction": zero_frac,
-                    "raw_spoof_probability": synth_result.probability if synth_result.status == "AVAILABLE" else None,
-                    "raw_bonafide_probability": bonafide_prob,
-                    "temporal_synthetic_evidence": accumulated_evidence,
-                    "speaker_verification_status": speaker_status,
-                    "speaker_similarity": speaker_sim,
-                    "final_risk_state": risk_result["risk_state"],
-                    "inference_latency_ms": total_inference_ms,
-                    "padded": zero_frac > 0.5,
-                    "dropped_windows": session.dropped_windows,
-                })
-
             if ws is None:
                 continue
+            
+            # --- UPDATE FUSION CALL ---
+            fused = fuse_evidence(synth_result, speaker_result, acoustic_result, history_synthetic_probs=session.synthetic_prob_history)
+            risk_result = determine_risk_state(fused)
+            # --------------------------
             inference_event = InferenceUpdate(
                 session_id=session.session_id,
                 timestamp_ms=time.time() * 1000,
@@ -332,9 +310,6 @@ class VoiceAnalysisManager:
                     "latency_ms": acoustic_result.inference_latency_ms,
                     "total_inference_latency_ms": total_inference_ms,
                 },
-                raw_synthetic_probability=synth_result.probability if synth_result.status == "AVAILABLE" else None,
-                accumulated_synthetic_evidence=accumulated_evidence,
-                speaker_verification_evidence=speaker_evidence,
             )
             risk_event = RiskUpdate(
                 session_id=session.session_id,
@@ -351,61 +326,28 @@ class VoiceAnalysisManager:
                 } for signal in fused.signals],
                 policy=policy_trigger,
                 recommended_action=recommended,
-                final_risk_state=risk_result["risk_state"],
             )
+            if session.last_stage_timing is not None:
+                session.last_stage_timing.t_event_emitted_ms = now_ms()
+                if diagnostics_enabled:
+                    logger.info(
+                        "ws.inference_diagnostic",
+                    session_id=session.session_id,
+                    latest_chunk_seq=session.latest_pending_seq,
+                    window_ready_ms=session.last_stage_timing.t_window_ready_ms,
+                    inference_start_ms=session.last_stage_timing.t_inference_start_ms,
+                    inference_end_ms=session.last_stage_timing.t_inference_end_ms,
+                    inference_latency_ms=(session.last_stage_timing.t_inference_end_ms - session.last_stage_timing.t_inference_start_ms)
+                    if session.last_stage_timing.t_inference_end_ms is not None and session.last_stage_timing.t_inference_start_ms is not None
+                    else None,
+                    ws_event_emitted_ms=session.last_stage_timing.t_event_emitted_ms,
+                    pending_state="PENDING_OR_STALE",
+                    coalesced_dropped_count=session.coalesced_dropped_windows,
+                    stale_windows_prevented=session.stale_windows_prevented,
+                    max_pending_depth=session.max_pending_depth,
+                )
             await self._send(ws, session, inference_event.model_dump_json())
             await self._send(ws, session, risk_event.model_dump_json())
-
-            # Persist risk history
-            risk_history_service.record(
-                session_id=session.session_id,
-                risk_state=risk_result["risk_state"],
-                fused_risk_score=risk_result["fused_risk_score"],
-                evidence=[{
-                    "signal": s.name, "points": s.points, "status": s.status,
-                    "description": s.description, "severity": s.severity
-                } for s in fused.signals],
-                policy=policy_trigger
-            )
-
-            # Persist inference history with deployed model version
-            model_ver = _get_deployed_model_version()
-            inference_history_service.record(
-                session_id=session.session_id,
-                raw_prob=synth_result.probability if synth_result.status == "AVAILABLE" else 0.0,
-                model_version=model_ver,
-                speaker_verification={
-                    "similarity_score": speaker_result.similarity_score,
-                    "confidence": speaker_result.confidence,
-                    "status": speaker_result.status,
-                    "identity_id": speaker_result.identity_id
-                } if speaker_result.status == "AVAILABLE" else None,
-                metadata={
-                    "accumulated_synthetic_evidence": accumulated_evidence,
-                    "speaker_verification_evidence": speaker_evidence
-                }
-            )
-
-            # Incident creation from policy trigger
-            incident = incident_service.create_from_policy(
-                session_id=session.session_id,
-                policy_trigger=policy_trigger,
-                risk_state=risk_result["risk_state"],
-                risk_score=risk_result["fused_risk_score"],
-                evidence=[{
-                    "signal": s.name, "points": s.points, "status": s.status,
-                    "description": s.description, "severity": s.severity
-                } for s in fused.signals]
-            )
-            if incident:
-                # audit log incident creation
-                audit_service.log(
-                    actor_id="system",
-                    action="INCIDENT_CREATED",
-                    resource_type="incident",
-                    resource_id=incident["id"],
-                    metadata={"session_id": session.session_id, "policy_id": incident["policy_id"]}
-                )
 
     async def handle_websocket(self, ws: WebSocket) -> None:
         await ws.accept()
@@ -472,7 +414,7 @@ class VoiceAnalysisManager:
                     normalized = to_mono_16k(
                         preprocessed.pcm_float32, preprocessed.sample_rate, preprocessed.channels
                     )
-                    self._queue_latest_window(session, normalized, ws)
+                    self._queue_latest_window(session, normalized, chunk.sequence_number, ws)
                     telemetry = TelemetryUpdate(
                         session_id=session.session_id,
                         timestamp_ms=time.time() * 1000,
@@ -528,3 +470,4 @@ class VoiceAnalysisManager:
                 await ws.close()
             except Exception:
                 pass
+

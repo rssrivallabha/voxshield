@@ -39,7 +39,6 @@ export interface UnifiedTelemetryFrame {
   mlMetrics: {
     speakerMatchPct: number | null;
     syntheticProbPct: number | null;
-    temporalSyntheticEvidencePct: number | null;
     speakerMatchText: string;
     syntheticProbText: string;
     deepfakeStatusText: string;
@@ -123,7 +122,6 @@ export function adaptSimulationFrame(simFrame: TelemetryFrame): UnifiedTelemetry
     mlMetrics: {
       speakerMatchPct: simFrame.metrics.speakerMatchPct,
       syntheticProbPct: simFrame.metrics.syntheticProbPct,
-      temporalSyntheticEvidencePct: null,
       speakerMatchText: `${simFrame.metrics.speakerMatchPct}%`,
       syntheticProbText: `${simFrame.metrics.syntheticProbPct}%`,
       deepfakeStatusText: `${simFrame.metrics.syntheticProbPct}% Likelihood`,
@@ -185,7 +183,6 @@ export function adaptLiveAudioMetrics(
     mlMetrics: {
       speakerMatchPct: null,
       syntheticProbPct: null,
-      temporalSyntheticEvidencePct: null,
       speakerMatchText: 'AWAITING ML INFERENCE',
       syntheticProbText: 'AWAITING ML INFERENCE',
       deepfakeStatusText: 'NOT AVAILABLE',
@@ -298,21 +295,12 @@ export function adaptBackendTelemetry(state: BackendTelemetryState): UnifiedTele
       sampleRate: latestTelemetry?.acoustic_metrics.sample_rate ?? null,
       channels: 1,
     },
-mlMetrics: {
-        speakerMatchPct: speaker?.similarity_score !== null && speaker?.similarity_score !== undefined ? Math.round(speaker.similarity_score * 100) : null,
-        // Raw synthetic probability (latest valid) – never fabricated
-        syntheticProbPct: (latestInference?.raw_synthetic_probability !== null && latestInference?.raw_synthetic_probability !== undefined)
-            ? Math.round(latestInference.raw_synthetic_probability * 100)
-            : (synthetic?.status === 'AVAILABLE' ? Math.round(synthetic.probability * 100) : null),
-        // Temporal synthetic evidence (separate signal)
-        temporalSyntheticEvidencePct: (latestInference?.accumulated_synthetic_evidence !== null && latestInference?.accumulated_synthetic_evidence !== undefined)
-            ? Math.round(latestInference.accumulated_synthetic_evidence * 100)
-            : null,
-        speakerMatchText: speaker?.status === 'AVAILABLE' && speaker.similarity_score !== null ? `${Math.round(speaker.similarity_score * 100)}%` : speaker?.status === 'NO_ENROLLED_IDENTITY' ? 'NO ENROLLED IDENTITY' : 'MODEL UNAVAILABLE',
-        syntheticProbText: (latestInference?.raw_synthetic_probability !== null && latestInference?.raw_synthetic_probability !== undefined)
-            ? `${Math.round(latestInference.raw_synthetic_probability * 100)}%`
-            : synthetic?.status === 'AVAILABLE' ? `${Math.round(synthetic.probability * 100)}%` : synthetic?.status === 'INSUFFICIENT_AUDIO' ? 'INSUFFICIENT AUDIO' : (synthetic?.status ? `MODEL_UNAVAILABLE (${synthetic.status})` : 'MODEL UNAVAILABLE'),
-        deepfakeStatusText: synthetic?.status === 'AVAILABLE' ? `${Math.round(synthetic.probability * 100)}% Likelihood` : (synthetic?.status ? `MODEL_UNAVAILABLE (${synthetic.status})` : 'MODEL UNAVAILABLE'),
+    mlMetrics: {
+       speakerMatchPct: speaker?.similarity_score !== null && speaker?.similarity_score !== undefined ? Math.round(speaker.similarity_score * 100) : null,
+       syntheticProbPct: synthetic?.status === 'AVAILABLE' ? Math.round(synthetic.probability * 100) : null,
+       speakerMatchText: speaker?.status === 'AVAILABLE' && speaker.similarity_score !== null ? `${Math.round(speaker.similarity_score * 100)}%` : speaker?.status === 'NO_ENROLLED_IDENTITY' ? 'NO ENROLLED IDENTITY' : 'MODEL UNAVAILABLE',
+       syntheticProbText: synthetic?.status === 'AVAILABLE' ? `${Math.round(synthetic.probability * 100)}%` : synthetic?.status === 'INSUFFICIENT_AUDIO' ? 'INSUFFICIENT AUDIO' : (synthetic?.status ? `MODEL_UNAVAILABLE (${synthetic.status})` : 'MODEL UNAVAILABLE'),
+       deepfakeStatusText: synthetic?.status === 'AVAILABLE' ? `${Math.round(synthetic.probability * 100)}% Likelihood` : (synthetic?.status ? `MODEL_UNAVAILABLE (${synthetic.status})` : 'MODEL UNAVAILABLE'),
     },
     evidenceBreakdown: {
       syntheticVoicePoints: latestRisk?.evidence.find((e) => e.signal.toLowerCase().includes('synthetic'))?.points ?? null,

@@ -141,6 +141,13 @@ export const MOCK_INCIDENTS: Incident[] = [
 export const MOCK_IDENTITIES: VoiceIdentity[] = [
   {
     id: 'id_spk_1042',
+    description: 'Speaker identity profile (voiceprint + metadata)',
+    enrollment_status: 'VERIFIED',
+    enrollment_count: 1,
+    has_embedding: true,
+    last_enrollment_at: new Date('2026-08-30T10:15:00Z').getTime() / 1000,
+    enrollment_audio_duration_s: 3.0,
+
     name: 'Eleanor Vance (VP Treasury)',
     accountRef: 'ACC-88231',
     enrolledAt: '2025-11-12T14:30:00Z',
@@ -151,6 +158,13 @@ export const MOCK_IDENTITIES: VoiceIdentity[] = [
   },
   {
     id: 'id_spk_1043',
+    description: 'Speaker identity profile (voiceprint + metadata)',
+    enrollment_status: 'VERIFIED',
+    enrollment_count: 1,
+    has_embedding: true,
+    last_enrollment_at: new Date('2026-09-01T16:45:00Z').getTime() / 1000,
+    enrollment_audio_duration_s: 3.0,
+
     name: 'David Miller (Chief Architect)',
     accountRef: 'ACC-90412',
     enrolledAt: '2026-01-15T09:20:00Z',
@@ -161,6 +175,13 @@ export const MOCK_IDENTITIES: VoiceIdentity[] = [
   },
   {
     id: 'id_spk_1044',
+    description: 'Speaker identity profile (voiceprint + metadata)',
+    enrollment_status: 'FAILED',
+    enrollment_count: 0,
+    has_embedding: false,
+    last_enrollment_at: null,
+    enrollment_audio_duration_s: 3.0,
+
     name: 'Unknown External Entity (Flagged)',
     accountRef: 'ACC-UNAUTH-01',
     enrolledAt: '2026-08-28T11:00:00Z',

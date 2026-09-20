@@ -1,3 +1,4 @@
+<<<<<<< ours
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional, List
@@ -315,3 +316,18 @@ def dashboard_stats(user: dict = Depends(require_admin)):
         model_versions_total=versions,
         latest_metrics=latest_metrics,
     )
+=======
+from fastapi import APIRouter, Depends
+
+from ..auth.admin_deps import require_admin
+
+router = APIRouter()
+
+
+@router.get('/_auth_test')
+def auth_test(_user: dict = Depends(require_admin)):
+    return {'ok': True}
+>>>>>>> theirs
+@router.get("/_auth_test")
+def auth_test(_user: dict = Depends(require_admin)):
+    return {"ok": True}

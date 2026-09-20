@@ -4,6 +4,7 @@ import torch.nn.functional as F
 
 
 class SincConv(nn.Module):
+
     def __init__(
         self,
         sinc_filters,
@@ -64,6 +65,7 @@ class SincConv(nn.Module):
             window,
             requires_grad=False,
         )
+
 
     def _make_filters(self):
         eps = 1e-8

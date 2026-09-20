@@ -29,20 +29,26 @@ def fuse_evidence(
     synthetic: SyntheticSpeechResult,
     speaker: SpeakerVerificationResult,
     acoustic: AcousticAnalysisResult,
+    history_synthetic_probs: Optional[list[float]] = None,
 ) -> FusedEvidence:
     signals: list[EvidenceSignal] = []
     has_any_ml = False
     
     if synthetic.status == "AVAILABLE":
         has_any_ml = True
-        synth_points = synthetic.probability * 50
+        # Temporal smoothing: if single anomaly, average over last N windows to prevent single-window spike overreaction
+        probs = (history_synthetic_probs or []) + [synthetic.probability]
+        recent_probs = probs[-3:]
+        effective_prob = sum(recent_probs) / len(recent_probs)
+        
+        synth_points = effective_prob * 50
         signals.append(EvidenceSignal(
             signal_type="synthetic_speech",
             name="Neural Synthetic Speech Detector",
             points=round(synth_points, 1),
             status="ACTIVE",
-            description=f"Synthetic probability: {synthetic.probability:.1%} (confidence: {synthetic.confidence:.1%})",
-            severity="critical" if synthetic.probability > 0.8 else "high" if synthetic.probability > 0.5 else "low",
+            description=f"Synthetic probability: {synthetic.probability:.1%} (smoothed: {effective_prob:.1%}, confidence: {synthetic.confidence:.1%})",
+            severity="critical" if effective_prob > 0.8 else "high" if effective_prob > 0.5 else "low",
         ))
     else:
         signals.append(EvidenceSignal(

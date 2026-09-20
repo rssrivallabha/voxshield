@@ -15,6 +15,11 @@ import { useScenarioRunner } from '@/lib/simulation/useScenarioRunner';
 import { useMicAudio } from '@/lib/audio/useMicAudio';
 import { useBackendInference } from '@/lib/backend/useBackendInference';
 import { phone, activity, play, pause, rotateCcw, mic, micOff, server, serverOff } from '@/lib/icons';
+import { useQuery } from '@tanstack/react-query';
+import { voxShieldService } from '@/lib/services';
+import { queryKeys } from '@/lib/api/queryKeys';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/Select';
+
 import {
   TelemetryMode,
   adaptSimulationFrame,
@@ -26,6 +31,13 @@ import {
 
 export default function SOCDashboard() {
   const [activeMode, setActiveMode] = React.useState<TelemetryMode>('SIMULATION');
+  const [selectedIdentityId, setSelectedIdentityId] = React.useState<string | undefined>(undefined);
+
+  const { data: identities = [] } = useQuery({
+    queryKey: queryKeys.identities.list(),
+    queryFn: () => voxShieldService.getVoiceIdentities(),
+  });
+
 
   // Simulation Runner State
   const {
@@ -64,7 +76,7 @@ export default function SOCDashboard() {
     startStreaming,
     stopStreaming,
     sessionId,
-  } = useBackendInference();
+  } = useBackendInference(selectedIdentityId);
 
   const backendTelemetryState: BackendTelemetryState = React.useMemo(() => ({
     sessionId,
@@ -216,6 +228,19 @@ export default function SOCDashboard() {
               </div>
             ) : (
               <div className="flex items-center gap-2">
+                <Select value={selectedIdentityId || "unassigned"} onValueChange={(val) => setSelectedIdentityId(val === "unassigned" ? undefined : val)} disabled={connectionState.status !== 'IDLE' && connectionState.status !== 'DISCONNECTED' && connectionState.status !== 'ERROR'}>
+                  <SelectTrigger className="w-[180px] h-8 text-xs">
+                    <SelectValue placeholder="No Identity Selected" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="unassigned" className="text-xs">No Identity Assigned</SelectItem>
+                    {identities.map((id) => (
+                      <SelectItem key={id.id} value={id.id} className="text-xs">
+                        {id.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 {connectionState.status === 'IDLE' || connectionState.status === 'DISCONNECTED' || connectionState.status === 'ERROR' ? (
                   <Button
                     variant="primary"

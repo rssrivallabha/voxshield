@@ -6,7 +6,7 @@ from app.inference.rawnet2.model import RawNet2Model
 
 class TestRawNet2Checkpoint(unittest.TestCase):
     def setUp(self):
-        self.checkpoint_path = 'models/synthetic_speech/best.pt'
+        self.checkpoint_path = os.path.join(os.path.dirname(__file__), '..', '..', 'models', 'synthetic_speech', 'best.pt')
         self.expected_hash = '0efd17340fd8de49c36ae907458deca54dad23bb502158643e49b7dda5064df8'
         
         self.config = {

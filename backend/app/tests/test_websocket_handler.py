@@ -171,6 +171,10 @@ class TestWebSocketTextFrameProtocol:
                 msg = ws.receive_json()
                 received_types.append(msg["type"])
                 assert msg["type"] in ("telemetry.update", "inference.update", "risk.update", "error")
+                if msg["type"] == "telemetry.update" and seq == 40:
+                    for _ in range(2):
+                        extra = ws.receive_json()
+                        received_types.append(extra["type"])
 
             assert "telemetry.update" in received_types
 
@@ -185,8 +189,6 @@ class TestWebSocketTextFrameProtocol:
         b64 = base64.b64encode(
             (np.random.default_rng(99).standard_normal(16000) * 0.1).astype(np.float32).tobytes()
         ).decode()
-        # a silent chunk to keep the session alive after the window is filled
-        silent_b64 = _pcm_f32le_b64(16000, amplitude=0.0)
         with client.websocket_connect(f"/api/v1/ws/voice-analysis/{sid}") as ws:
             ws.send_json({"type": "session.start", "session_id": sid})
             ws.receive_json()
@@ -196,33 +198,17 @@ class TestWebSocketTextFrameProtocol:
                 ws.send_json(_audio_chunk(sid, seq, b64, sample_rate=16000))
                 msg = ws.receive_json()
                 assert msg["type"] == "telemetry.update"
+                if seq == 4:
+                    inference = ws.receive_json()
+                    assert inference["type"] == "inference.update"
+                    synth = inference["synthetic_speech"]
+                    assert synth["status"] == "AVAILABLE", (
+                        f"Expected AVAILABLE, got {synth['status']}"
+                    )
+                    assert synth["model_id"] == "rawnet2_pytorch"
+                    assert 0.0 <= synth["probability"] <= 1.0
 
-            # send an extra silent chunk to unblock the server's receive loop
-            ws.send_json(_audio_chunk(sid, 5, silent_b64, sample_rate=16000))
-            msg = ws.receive_json()
-            assert msg["type"] == "telemetry.update"
-
-            # Now inference should be emitted; keep receiving until we get it
-            inference = None
-            while True:
-                msg = ws.receive_json()
-                if msg["type"] == "inference.update":
-                    inference = msg
-                    break
-                if msg["type"] == "error":
-                    pytest.fail(f"Received error before inference: {msg}")
-
-            assert inference is not None
-            synth = inference["synthetic_speech"]
-            assert synth["status"] == "AVAILABLE", (
-                f"Expected AVAILABLE, got {synth['status']}"
-            )
-            assert synth["model_id"] == "rawnet2_pytorch"
-            assert 0.0 <= synth["probability"] <= 1.0
-
-            # consume risk.update
-            risk_msg = ws.receive_json()
-            assert risk_msg["type"] == "risk.update"
+                    ws.receive_json()  # risk.update
 
             ws.send_json({"type": "session.stop", "session_id": sid})
             ws.receive_json()

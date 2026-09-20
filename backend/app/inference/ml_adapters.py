@@ -206,26 +206,6 @@ class ECAPATDNNSpeakerVerifier(SpeakerVerifier):
             return True
         except Exception:
             return False
-        """Enroll a speaker (server-authoritative, backend-owned)."""
-        if not self.model_available or not self.session or not librosa:
-            return False
-        if sample_rate != 16000:
-            return False
-        min_samples = int(16000 * 1.5)
-        if len(audio_samples) < min_samples:
-            return False
-        try:
-            mfcc = self._extract_mfcc(audio_samples, sample_rate)
-            if mfcc is None:
-                return False
-            mfcc = np.expand_dims(mfcc, axis=0).astype(np.float32)
-            input_name = self.session.get_inputs()[0].name
-            embedding = self.session.run(None, {input_name: mfcc})[0]
-            embedding = embedding.reshape(-1)
-            self.enrollment_store[identity_id] = {"embedding": embedding.tolist(), "timestamp": time.time()}
-            return True
-        except Exception:
-            return False
     
     def verify(
         self, audio_samples: list[float], sample_rate: int, identity_id: Optional[str]

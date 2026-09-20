@@ -4,6 +4,7 @@ import structlog
 from fastapi import FastAPI, WebSocket, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
 from pydantic import BaseModel
 from typing import Optional
 
@@ -17,14 +18,6 @@ from .inference.ml_adapters import (
     ImprovedAcousticAnalyzer,
 )
 from .inference.identity_service import IdentityService
-from .db import init_db
-from .auth import require_admin, _DEV_USERS, _active_tokens, _make_session, _resolve_token, _bearer_scheme
-from .admin.routes import router as admin_router
-from .incident.routes import router as incident_router
-from .audit.routes import router as audit_router
-from .history.risk_routes import router as risk_history_router
-from .history.inference_routes import router as inference_history_router
-from .policy.routes import router as policy_router
 
 structlog.configure(
     processors=[
@@ -39,10 +32,6 @@ app = FastAPI(
     version="0.1.0",
 )
 
-@app.on_event("startup")
-async def on_startup():
-    init_db()
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
@@ -51,18 +40,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(admin_router)
-app.include_router(incident_router)
-app.include_router(audit_router)
-app.include_router(risk_history_router)
-app.include_router(inference_history_router)
-app.include_router(policy_router)
-
 synthetic_detector = RawNet2SyntheticDetector()
 speaker_verifier = ECAPATDNNSpeakerVerifier()
 acoustic_analyzer = ImprovedAcousticAnalyzer()
 
 identity_service = IdentityService(speaker_verifier)
+
+from .admin.routes import router as admin_router
+app.include_router(admin_router, prefix='/api/v1/admin')
 
 manager = VoiceAnalysisManager(
     synthetic_detector=synthetic_detector,
@@ -70,11 +55,75 @@ manager = VoiceAnalysisManager(
     acoustic_analyzer=acoustic_analyzer,
 )
 
+# ---------------------------------------------------------------------------
+# Dev auth fixtures — matches MockAuthAdapter role fixtures in the frontend.
+# These are development-only endpoints; do not use real credentials here.
+# ---------------------------------------------------------------------------
+
+_DEV_USERS = {
+    "operator": {
+        "id": "usr_op_01",
+        "email": "operator@voxshield.sec",
+        "name": "Sarah Connor",
+        "role": "operator",
+        "department": "SOC Tier 1",
+    },
+    "analyst": {
+        "id": "usr_an_01",
+        "email": "analyst@voxshield.sec",
+        "name": "Alex Vance",
+        "role": "analyst",
+        "department": "Fraud Investigation Unit",
+    },
+    "admin": {
+        "id": "usr_adm_01",
+        "email": "admin@voxshield.sec",
+        "name": "Chief Security Officer",
+        "role": "admin",
+        "department": "Executive Security",
+    },
+    "system": {
+        "id": "usr_sys_01",
+        "email": "system@voxshield.sec",
+        "name": "Automated Gateway Agent",
+        "role": "system",
+        "department": "Infrastructure",
+    },
+}
+
+# In-memory token store: token -> user dict
+_active_tokens: dict[str, dict] = {}
+
+from .auth_state import set_active_tokens as _set_active_tokens
+_set_active_tokens(_active_tokens)
+
+_bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def _make_session(user: dict) -> dict:
+    token = f"dev_jwt_{user['role']}_{secrets.token_hex(16)}"
+    expires_at = time.strftime(
+        "%Y-%m-%dT%H:%M:%S.000Z",
+        time.gmtime(time.time() + 8 * 3600),
+    )
+    _active_tokens[token] = user
+    return {"user": user, "token": token, "expiresAt": expires_at}
+
+
+def _resolve_token(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer_scheme),
+) -> Optional[dict]:
+    if credentials is None:
+        return None
+    return _active_tokens.get(credentials.credentials)
+
 
 class LoginCredentials(BaseModel):
     email: str
     password: str = ""
     roleOverride: Optional[str] = None
+
+
 
 
 @app.post("/api/v1/auth/login")
@@ -94,6 +143,7 @@ async def auth_logout(
 
 
 @app.get("/api/v1/auth/me")
+
 async def auth_me(user: Optional[dict] = Depends(_resolve_token)):
     if user is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -112,9 +162,22 @@ async def auth_me(user: Optional[dict] = Depends(_resolve_token)):
 # Health & WebSocket
 # ---------------------------------------------------------------------------
 
-@app.get("/api/v1/identities")
+
+
+# ---------------------------------------------------------------------------
+# Admin-only routes (dev auth)
+# ---------------------------------------------------------------------------
+
 async def identities():
     return identity_service.list_identities()
+
+
+@app.get("/api/v1/identities/{identity_id}")
+async def get_identity(identity_id: str):
+    identity = identity_service.get_identity(identity_id)
+    if not identity:
+        raise HTTPException(status_code=404, detail="Identity not found")
+    return identity_service.get_enrollment_status(identity_id)
 
 @app.post("/api/v1/identities")
 async def create_identity(identity: IdentityCreate):
@@ -146,6 +209,7 @@ async def delete_identity(identity_id: str):
     return {"status": "deleted"}
 
 @app.get("/api/v1/policies")
+
 async def policies():
     return DEFAULT_POLICIES
 

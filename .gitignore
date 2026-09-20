@@ -22,3 +22,12 @@ web/.next/
 Thumbs.db
 backend/models/**/*.pt
 backend/models/**/*.onnx
+
+# Generated / local files
+__pycache__/
+*.pyc
+*.wav
+*.mp3
+*.mp4
+prof.txt
+brag-output-*/

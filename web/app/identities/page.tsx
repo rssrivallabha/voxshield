@@ -63,7 +63,7 @@ export default function IdentitiesPage() {
                   {
                     key: 'lastVerifiedAt',
                     header: 'Last Verified',
-                    render: (row) => <span className="font-mono text-xs text-muted-foreground">{formatDateTime(row.lastVerifiedAt)}</span>,
+                    render: (row) => <span className="font-mono text-xs text-muted-foreground">{row.lastVerifiedAt ? formatDateTime(row.lastVerifiedAt) : '-'}</span>,
                   },
                 ]}
                 data={identities}

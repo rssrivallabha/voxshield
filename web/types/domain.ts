@@ -39,14 +39,20 @@ export interface Incident {
 }
 
 export interface VoiceIdentity {
-    id: string;
-    name: string;
-    accountRef: string;
-    enrolledAt: string;
-    lastVerifiedAt: string;
-    status: 'ENROLLED' | 'PENDING' | 'REVOKED' | 'FLAGGED';
-    confidenceScore: number;
-    totalCalls: number;
+  id: string
+  name: string
+  description: string
+  accountRef: string | null
+  enrolledAt: string
+  lastVerifiedAt: string | null
+  status: 'ENROLLED' | 'PENDING' | 'REVOKED' | 'FLAGGED'
+  confidenceScore: number
+  totalCalls: number
+  enrollment_status: string
+  enrollment_count: number
+  has_embedding: boolean
+  last_enrollment_at: number | null
+  enrollment_audio_duration_s: number
 }
 
 export interface SecurityPolicy {

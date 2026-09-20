@@ -78,7 +78,7 @@ class IdentityService:
             self.repository.update_identity(identity)
 
             return True, SpeakerVerificationResult(
-                similarity_score=1.0, confidence=1.0, identity_id=identity_id,
+                similarity_score=None, confidence=None, identity_id=identity_id,
                 status="AVAILABLE", inference_latency_ms=0.0,
                 metadata={
                     "enrollment_count": identity.enrollment_count,

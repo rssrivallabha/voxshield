@@ -48,6 +48,7 @@ export class ApiVoxShieldService implements IVoxShieldService {
     return apiClient.patch<Incident>(`/incidents/${id}`, { status });
   }
 
+
   getSecurityPolicies(): Promise<SecurityPolicy[]> {
     return apiClient.get<SecurityPolicy[]>('/policies');
   }

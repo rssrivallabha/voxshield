@@ -36,7 +36,7 @@ def _cfg():
 
 
 def _load_model_and_checkpoint():
-    ckpt_path = "models/synthetic_speech/best.pt"
+    ckpt_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "models", "synthetic_speech", "best.pt")
     expected = "0efd17340fd8de49c36ae907458deca54dad23bb502158643e49b7dda5064df8"
     assert os.path.exists(ckpt_path)
     assert _sha256(ckpt_path) == expected
